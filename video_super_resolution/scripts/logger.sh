@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# video_super_resolution/scripts/logger.sh
+# logger.sh
+# ----------
 # Library to log CPU, RAM, GPU metrics for a given PID every INTERVAL seconds.
-# Usage: source logger.sh && start_metrics_logger <PID> [INTERVAL] <LOGFILE>
+# Usage:
+#   source logger.sh
+#   start_metrics_logger <PID> [INTERVAL] <LOGFILE>
 
 start_metrics_logger() {
   local PID="$1"
@@ -15,45 +18,41 @@ start_metrics_logger() {
   TOTAL_VRAM_MB=$(nvidia-smi --query-gpu=memory.total \
       --format=csv,noheader,nounits -i 0 | tr -d ' ')
 
-  # Write header
+  # Write CSV-style header (append so we don't overwrite your custom header)
   {
     printf "%-19s | %6s | %8s | %6s | %6s | %8s | %6s | %s\n" \
       "Timestamp" "CPU%" "RAM(MB)" "RAM%" "GPU0%" "VRAM(MB)" "VRAM%" "Per-Core(%)"
     printf '%.0s─' {1..120}
     echo
-  } > "$LOGFILE"
+  } >> "$LOGFILE"
 
-  # Sampling loop
+  # Loop until the process ends
   while kill -0 "$PID" 2>/dev/null; do
     TS=$(date +%Y-%m-%dT%H:%M:%S)
 
-    # — instantaneous CPU% for the process + its children —
+    # CPU% for PID + children
     cpu_proc=$(
       {
-        # main process
         ps -p "$PID" -o %cpu=;
-        # any direct children
         for C in $(pgrep -P "$PID"); do
           ps -p "$C" -o %cpu=
         done
       } | awk '{s+=$1} END{printf "%.1f", s}'
     )
 
-    # — RAM usage (RSS) in MB + percent —
+    # RAM usage
     rss_kb=$(ps -p "$PID" -o rss= | tr -d ' ')
     ram_mb=$(awk "BEGIN{printf \"%.1f\", $rss_kb/1024}")
     ram_pct=$(awk "BEGIN{printf \"%.1f\", $rss_kb/$TOTAL_MEM_KB*100}")
 
-    # — GPU utilization —
+    # GPU util + VRAM
     gpu_util=$(nvidia-smi --query-gpu=utilization.gpu \
       --format=csv,noheader,nounits -i 0 | tr -d ' ')
-
-    # — total VRAM used + percent —
     vram_used=$(nvidia-smi --query-gpu=memory.used \
       --format=csv,noheader,nounits -i 0 | tr -d ' ')
     vram_pct=$(awk "BEGIN{printf \"%.1f\", $vram_used/$TOTAL_VRAM_MB*100}")
 
-    # — per-core CPU usage —
+    # Per-core CPU
     readarray -t core_vals < <(python - <<'PYCODE'
 import psutil
 for pct in psutil.cpu_percent(percpu=True, interval=0.1):
@@ -65,7 +64,7 @@ PYCODE
       core_str+=" ${idx}:${core_vals[idx]}%"
     done
 
-    # Append to logfile
+    # Append one line of metrics
     printf "%-19s | %6s | %8s | %6s | %6s | %8s | %6s |%s\n" \
       "$TS" "$cpu_proc" "$ram_mb" "$ram_pct" "$gpu_util" \
       "$vram_used" "$vram_pct" "$core_str" \
