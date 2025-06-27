@@ -1,35 +1,32 @@
 #!/usr/bin/env bash
 # inference_batch.sh
 # ------------------
-# Loops over all MP4s in a folder, reads a matching prompt for each
-# from a text file, and invokes inference_single.sh on each one.
+# Loops over all MP4s in a folder, reads prompts one-per-line,
+# and invokes inference_single.sh on each video.
 
 set -euo pipefail
 
 VIDEO_DIR='./input/video'
 PROMPT_FILE='./input/text/prompt.txt'
-FRAME_LEN=32       # max_chunk_len default
+FRAME_LEN=32
 SCRIPT_SINGLE=./video_super_resolution/scripts/test/inference_single.sh
 
-# Read .mp4 files (in alphanumeric order)
 mapfile -t VIDEOS < <(find "$VIDEO_DIR" -type f -name '*.mp4' | sort)
-
-# Read prompts (one per line, skip blanks)
 mapfile -t PROMPTS < <(grep -v '^\s*$' "$PROMPT_FILE")
 
 if [ "${#VIDEOS[@]}" -ne "${#PROMPTS[@]}" ]; then
-  echo "${#VIDEOS[@]} videos vs ${#PROMPTS[@]} prompts—counts must match."
+  echo "Error: ${#VIDEOS[@]} videos vs ${#PROMPTS[@]} prompts—counts must match."
   exit 1
 fi
 
-echo "Found ${#VIDEOS[@]} videos; starting batch inference..."
+echo "Starting batch of ${#VIDEOS[@]} videos..."
 
 for i in "${!VIDEOS[@]}"; do
   V="${VIDEOS[$i]}"
   P="${PROMPTS[$i]}"
-  echo "---"
-  echo "▶︎ [$((i+1))/${#VIDEOS[@]}] $V"
-  
+
+  echo "Processing [$((i+1))/${#VIDEOS[@]}]: $V"
+
   "$SCRIPT_SINGLE" \
     --input "$V" \
     --prompt "$P" \
@@ -43,7 +40,7 @@ for i in "${!VIDEOS[@]}"; do
     --log_dir ./logs \
     --interval 60
 
-  echo "Done $V"
+  echo "Finished $V"
 done
 
-echo "Batch complete; all logs are in ./logs"
+echo "Batch complete. Logs are in ./logs"
