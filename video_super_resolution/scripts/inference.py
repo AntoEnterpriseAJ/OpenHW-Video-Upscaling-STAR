@@ -28,6 +28,7 @@ class STAR():
                  guide_scale=7.5,
                  upscale=4,
                  max_chunk_len=32,
+                 device: str = 'cpu',
                  ):
         self.model_path=model_path
         logger.info('checkpoint_path: {}'.format(self.model_path))
@@ -36,9 +37,11 @@ class STAR():
         self.file_name = file_name
         os.makedirs(self.result_dir, exist_ok=True)
 
+        self.device = torch.device(device)
+
         model_cfg = EasyDict(__name__='model_cfg')
         model_cfg.model_path = self.model_path
-        self.model = VideoToVideo_sr(model_cfg)
+        self.model = VideoToVideo_sr(model_cfg, device=self.device)
 
         steps = 15 if solver_mode == 'fast' else steps
         self.solver_mode=solver_mode
@@ -69,7 +72,7 @@ class STAR():
         setup_seed(666)
 
         with torch.no_grad():
-            data_tensor = collate_fn(pre_data, 'cuda:0')
+            data_tensor = collate_fn(pre_data, self.device)
             output = self.model.test(data_tensor, total_noise_levels, steps=self.steps, \
                                 solver_mode=self.solver_mode, guide_scale=self.guide_scale, \
                                 max_chunk_len=self.max_chunk_len
@@ -98,6 +101,7 @@ def parse_args():
     parser.add_argument("--cfg", type=float, default=7.5)
     parser.add_argument("--solver_mode", type=str, default='fast', help='fast | normal')
     parser.add_argument("--steps", type=int, default=15)
+    parser.add_argument("--device", type=str, default='cpu', help="cpu or cuda:0 etc.")
 
     return parser.parse_args()
 
@@ -116,6 +120,7 @@ def main():
     steps = args.steps
     solver_mode = args.solver_mode
     guide_scale = args.cfg
+    device = args.device
 
     assert solver_mode in ('fast', 'normal')
 
@@ -128,6 +133,7 @@ def main():
                 guide_scale=guide_scale,
                 upscale=upscale,
                 max_chunk_len=max_chunk_len,
+                device=device,
                 )
 
     star.enhance_a_video(input_path, prompt)

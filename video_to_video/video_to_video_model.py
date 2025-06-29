@@ -38,8 +38,12 @@ class VideoToVideo_sr():
         if 'state_dict' in load_dict:
             load_dict = load_dict['state_dict']
         ret = generator.load_state_dict(load_dict, strict=False)
-        
-        self.generator = generator.half()
+
+        # Use half precision only on CUDA devices
+        if self.device.type == 'cuda':
+            self.generator = generator.half()
+        else:
+            self.generator = generator.float()
         logger.info('Load model path {}, with local status {}'.format(cfg.model_path, ret))
 
         # Noise scheduler
@@ -60,6 +64,9 @@ class VideoToVideo_sr():
         vae.eval()
         vae.requires_grad_(False)
         vae.to(self.device)
+        # Convert to float32 on CPU to ensure operator support
+        if self.device.type == 'cpu':
+            vae = vae.float()
         self.vae = vae
         logger.info('Build Temporal VAE')
 
@@ -95,7 +102,8 @@ class VideoToVideo_sr():
 
         y = self.text_encoder(y).detach()
 
-        with amp.autocast(enabled=True):
+        # Enable autocast only on CUDA for fp16 acceleration
+        with amp.autocast(enabled=(self.device.type == 'cuda')):
 
             t = torch.LongTensor([total_noise_levels-1]).to(self.device)
             noised_lr = self.diffusion.diffuse(video_data_feature, t)

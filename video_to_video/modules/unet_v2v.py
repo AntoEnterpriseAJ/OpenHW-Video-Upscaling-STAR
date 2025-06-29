@@ -169,20 +169,52 @@ class MemoryEfficientCrossAttention(nn.Module):
             (q, k, v),
         )
 
-        # actually compute the attention, what we cannot get enough of.
+        # --- Attention computation ---
+        # xformers' memory_efficient_attention only supports CUDA. Provide a CPU fallback so the
+        # entire model can run inference on machines without a GPU.
+        def _dot_product_attention(q_in, k_in, v_in):
+            """Naïve full-matrix attention (may OOM on large sequences)."""
+            attn = torch.softmax(torch.matmul(q_in, k_in.transpose(-2, -1)) / math.sqrt(k_in.shape[-1]), dim=-1)
+            return torch.matmul(attn, v_in)
+
+        def _dot_product_attention_chunked(q_in, k_in, v_in, chunk_size: int = 1024):
+            """Memory-friendly attention: process query in chunks so we never materialise the full (seq_q × seq_k) matrix."""
+            seq_len = q_in.shape[1]
+            outputs = []
+            scale = 1.0 / math.sqrt(k_in.shape[-1])
+            k_t = k_in.transpose(-2, -1)  # (B, d, seq_k)
+            for start in range(0, seq_len, chunk_size):
+                end = min(start + chunk_size, seq_len)
+                q_chunk = q_in[:, start:end, :]  # (B, chunk, d)
+                attn_logits = torch.matmul(q_chunk, k_t) * scale  # (B, chunk, seq_k)
+                attn_weights = torch.softmax(attn_logits, dim=-1)
+                outputs.append(torch.matmul(attn_weights, v_in))  # (B, chunk, d)
+                del attn_logits, attn_weights  # free memory early
+            return torch.cat(outputs, dim=1)
+
+        use_xformers = q.is_cuda and hasattr(xformers, "ops")
+
+        def _attn_fn(q_in, k_in, v_in):
+            if use_xformers:
+                return xformers.ops.memory_efficient_attention(
+                    q_in, k_in, v_in, attn_bias=None, op=self.attention_op)
+            try:  # PyTorch ≥2.0
+                return F.scaled_dot_product_attention(
+                    q_in, k_in, v_in, attn_mask=None, dropout_p=0.0)
+            except (AttributeError, RuntimeError):  # API missing or OOM → chunked matmul
+                return _dot_product_attention_chunked(q_in, k_in, v_in)
+
+        # Split into smaller chunks if batch is too large for memory limits
         if q.shape[0] > self.max_bs:
             q_list = torch.chunk(q, q.shape[0] // self.max_bs, dim=0)
             k_list = torch.chunk(k, k.shape[0] // self.max_bs, dim=0)
             v_list = torch.chunk(v, v.shape[0] // self.max_bs, dim=0)
             out_list = []
             for q_1, k_1, v_1 in zip(q_list, k_list, v_list):
-                out = xformers.ops.memory_efficient_attention(
-                    q_1, k_1, v_1, attn_bias=None, op=self.attention_op)
-                out_list.append(out)
+                out_list.append(_attn_fn(q_1, k_1, v_1))
             out = torch.cat(out_list, dim=0)
         else:
-            out = xformers.ops.memory_efficient_attention(
-                q, k, v, attn_bias=None, op=self.attention_op)
+            out = _attn_fn(q, k, v)
 
         if exists(mask):
             raise NotImplementedError
