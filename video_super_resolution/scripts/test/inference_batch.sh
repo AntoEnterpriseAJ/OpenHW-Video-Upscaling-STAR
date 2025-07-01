@@ -8,7 +8,7 @@ set -euo pipefail
 
 VIDEO_DIR='./input/video'
 PROMPT_FILE='./input/text/prompt.txt'
-FRAME_LEN=32
+FRAME_LEN=24
 SCRIPT_SINGLE=./video_super_resolution/scripts/test/inference_single.sh
 
 mapfile -t VIDEOS < <(find "$VIDEO_DIR" -type f -name '*.mp4' | sort)

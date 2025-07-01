@@ -30,7 +30,7 @@ SOLVER_MODE="fast"
 STEPS=15
 CFG=7.5
 UPSCALE=4
-MAX_CHUNK_LEN=32
+MAX_CHUNK_LEN=24
 
 ####################
 # Arg parsing
