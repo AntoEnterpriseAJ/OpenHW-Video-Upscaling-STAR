@@ -30,7 +30,7 @@ for i in "${!VIDEOS[@]}"; do
   "$SCRIPT_SINGLE" \
     --input "$V" \
     --prompt "$P" \
-    --model_path /mnt/hdd3/openhardware/star/pretrained_weights/light_deg.pt \
+    --model_path /mnt/hdd1/openhardware/pretrained_weights/light_deg.pt \
     --save_dir ./results \
     --solver_mode fast \
     --steps 15 \

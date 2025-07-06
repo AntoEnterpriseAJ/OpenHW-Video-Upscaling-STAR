@@ -28,7 +28,9 @@ class STAR():
                  guide_scale=7.5,
                  upscale=4,
                  max_chunk_len=32,
+                 device='cpu'
                  ):
+        self.device = device
         self.model_path=model_path
         logger.info('checkpoint_path: {}'.format(self.model_path))
 
@@ -38,7 +40,7 @@ class STAR():
 
         model_cfg = EasyDict(__name__='model_cfg')
         model_cfg.model_path = self.model_path
-        self.model = VideoToVideo_sr(model_cfg)
+        self.model = VideoToVideo_sr(model_cfg, device=self.device)
 
         steps = 15 if solver_mode == 'fast' else steps
         self.solver_mode=solver_mode
@@ -69,7 +71,7 @@ class STAR():
         setup_seed(666)
 
         with torch.no_grad():
-            data_tensor = collate_fn(pre_data, 'cuda:0')
+            data_tensor = collate_fn(pre_data, self.device)
             output = self.model.test(data_tensor, total_noise_levels, steps=self.steps, \
                                 solver_mode=self.solver_mode, guide_scale=self.guide_scale, \
                                 max_chunk_len=self.max_chunk_len
@@ -90,7 +92,7 @@ def parse_args():
     parser.add_argument("--input_path", required=True, type=str, help="input video path")
     parser.add_argument("--save_dir", type=str, default='results', help="save directory")
     parser.add_argument("--file_name", type=str, help="file name")
-    parser.add_argument("--model_path", type=str, default='/mnt/hdd3/openhardware/star/pretrained_weights/light_deg.pt', help="model path")
+    parser.add_argument("--model_path", type=str, default='/mnt/hdd1/openhardware/pretrained_weights/light_deg.pt', help="model path")
     parser.add_argument("--prompt", type=str, default='a good video', help="prompt")
     parser.add_argument("--upscale", type=int, default=4, help='up-scale')
     parser.add_argument("--max_chunk_len", type=int, default=32, help='max_chunk_len')

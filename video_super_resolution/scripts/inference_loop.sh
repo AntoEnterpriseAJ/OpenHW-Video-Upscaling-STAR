@@ -46,7 +46,7 @@ for i in "${!mp4_files[@]}"; do
         --solver_mode 'fast' \
         --steps 15 \
         --input_path "${mp4_file}" \
-        --model_path /mnt/hdd3/openhardware/star/pretrained_weights/light_deg.pt \
+        --model_path /mnt/hdd1/openhardware/pretrained_weights/light_deg.pt \
         --prompt "${line}" \
         --upscale 4 \
         --max_chunk_len ${frame_length} \

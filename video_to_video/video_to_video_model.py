@@ -18,9 +18,11 @@ from diffusers import AutoencoderKLTemporalDecoder
 logger = get_logger()
 
 class VideoToVideo_sr():
-    def __init__(self, opt, device=torch.device(f'cuda:0')):
+    def __init__(self, opt, device: torch.device | str = "cpu"):
+        # normalise the incoming value so the rest of the class can just use self.device
+        self.device = torch.device(device) if not isinstance(device, torch.device) else device
+        
         self.opt = opt
-        self.device = device # torch.device(f'cuda:0')
 
         # text_encoder
         text_encoder = FrozenOpenCLIPEmbedder(device=self.device, pretrained="laion2b_s32b_b79k")
@@ -39,7 +41,7 @@ class VideoToVideo_sr():
             load_dict = load_dict['state_dict']
         ret = generator.load_state_dict(load_dict, strict=False)
         
-        self.generator = generator.half()
+        self.generator = generator.half() if self.device.type == "cuda" else generator.float()
         logger.info('Load model path {}, with local status {}'.format(cfg.model_path, ret))
 
         # Noise scheduler
@@ -54,16 +56,21 @@ class VideoToVideo_sr():
         logger.info('Build diffusion with GaussianDiffusion')
 
         # Temporal VAE
+        vae_variant = "fp16" if self.device.type == "cuda" else None
         vae = AutoencoderKLTemporalDecoder.from_pretrained(
-            "stabilityai/stable-video-diffusion-img2vid", subfolder="vae", variant="fp16"
+            "stabilityai/stable-video-diffusion-img2vid",
+            subfolder="vae",
+            **({} if vae_variant is None else {"variant": vae_variant}),
         )
+
         vae.eval()
         vae.requires_grad_(False)
         vae.to(self.device)
         self.vae = vae
         logger.info('Build Temporal VAE')
 
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         self.negative_prompt = cfg.negative_prompt
         self.positive_prompt = cfg.positive_prompt
@@ -91,11 +98,12 @@ class VideoToVideo_sr():
         video_data = video_data.to(self.device)
 
         video_data_feature = self.vae_encode(video_data)
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         y = self.text_encoder(y).detach()
 
-        with amp.autocast(enabled=True):
+        with amp.autocast(enabled=(self.device.type == "cuda")):
 
             t = torch.LongTensor([total_noise_levels-1]).to(self.device)
             noised_lr = self.diffusion.diffuse(video_data_feature, t)
@@ -103,7 +111,8 @@ class VideoToVideo_sr():
             model_kwargs = [{'y': y}, {'y': self.negative_y}]
             model_kwargs.append({'hint': video_data_feature})
 
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             chunk_inds = make_chunks(frames_num, interp_f_num=0, max_chunk_len=max_chunk_len) if frames_num > max_chunk_len else None
 
             solver = 'dpmpp_2m_sde' # 'heun' | 'dpmpp_2m_sde' 
@@ -121,7 +130,8 @@ class VideoToVideo_sr():
                 t_min=0,
                 discretization='trailing',
                 chunk_inds=chunk_inds,)
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()    
 
             logger.info(f'sampling, finished.')
             vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=3)
@@ -134,7 +144,8 @@ class VideoToVideo_sr():
         gen_video = rearrange(
             vid_tensor_gen, '(b f) c h w -> b c f h w', b=bs)
 
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
         return gen_video.type(torch.float32).cpu()
 

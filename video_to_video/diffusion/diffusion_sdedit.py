@@ -200,7 +200,8 @@ class GaussianDiffusion(object):
                 else:
                     results_list.append(x0_chunk[:,:,cut_f_ind:cur_f+cut_f_ind-O_LEN])
             x0 = torch.concat(results_list, dim=2)
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return x0
 
         # get timesteps
@@ -349,7 +350,8 @@ class GaussianDiffusion(object):
                 else:
                     results_list.append(x0_chunk[:,:,cut_f_ind:cur_f+cut_f_ind-O_LEN])
             x0 = torch.concat(results_list, dim=2)
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return x0
 
         # get timesteps

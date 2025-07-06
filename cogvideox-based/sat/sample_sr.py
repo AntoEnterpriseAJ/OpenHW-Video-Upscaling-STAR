@@ -201,7 +201,8 @@ def sampling_main(args, model_cls):
 
                 # Unload the model from GPU to save GPU memory
                 model.to("cpu")
-                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 first_stage_model = model.first_stage_model
                 first_stage_model = first_stage_model.to(device)
 

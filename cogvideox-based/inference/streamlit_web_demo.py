@@ -169,7 +169,8 @@ def main() -> None:
                 st.error("Failed to Refining the prompt, Using origin one.")
 
         st.info(f"**Origin prompt:**  \n{prompt}  \n  \n**Convert prompt:**  \n{converted_prompt}")
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         with st.spinner("Generating Video..."):
             start_time = time.time()
@@ -195,7 +196,8 @@ def main() -> None:
                 with open(video_path, "rb") as video_file:
                     video_bytes: bytes = video_file.read()
                     st.video(video_bytes, autoplay=True, loop=True, format="video/mp4")
-                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
             used_time: float = time.time() - start_time
             st.success(f"Videos generated in {used_time:.2f} seconds.")

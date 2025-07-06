@@ -94,7 +94,8 @@ def infer(
         guidance_scale: float,
         progress=gr.Progress(track_tqdm=True)
 ):
-    torch.cuda.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     prompt_embeds, _ = pipe.encode_prompt(
         prompt=prompt,

@@ -159,7 +159,8 @@ class SATVideoDiffusionEngine(nn.Module):
             # batch['lq'] = None
 
         gc.collect()
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         loss, loss_dict = self(x, hq_video, batch)
         return loss, loss_dict
 
