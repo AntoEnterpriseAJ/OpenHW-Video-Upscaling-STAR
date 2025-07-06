@@ -170,19 +170,52 @@ class MemoryEfficientCrossAttention(nn.Module):
         )
 
         # actually compute the attention, what we cannot get enough of.
+        def _flash_attn(q_, k_, v_, max_chunk=1024):
+            """
+            1. Try xFormers CUDA kernels.
+            2. Try PyTorch SDPA.
+            3. If SDPA OOMs on CPU, do chunked SDPA over the
+            query length so the soft-max matrix never explodes.
+            """
+            # 1 - xFormers (works only on CUDA)
+            try:
+                return xformers.ops.memory_efficient_attention(
+                    q_, k_, v_, attn_bias=None, op=self.attention_op
+                )
+            except NotImplementedError:
+                pass  # drop to step 2
+
+            # 2 - vanilla SDPA (fast but memory-hungry on big seqs)
+            try:
+                return torch.nn.functional.scaled_dot_product_attention(
+                    q_, k_, v_, dropout_p=0.0, is_causal=False
+                )
+            except RuntimeError as err:
+                if "DefaultCPUAllocator" not in str(err):
+                    raise  # some other unexpected failure
+
+            # 3 - CHUNKED SDPA (low-mem CPU path)
+            q_len = q_.size(1)
+            out_chunks = []
+            for start in range(0, q_len, max_chunk):
+                q_chunk = q_[:, start:start + max_chunk]          # [B*H, chunk, D]
+                out_chunks.append(
+                    torch.nn.functional.scaled_dot_product_attention(
+                        q_chunk, k_, v_, dropout_p=0.0, is_causal=False
+                    )
+                )
+            return torch.cat(out_chunks, dim=1)                   # concat on seq dim
+
         if q.shape[0] > self.max_bs:
-            q_list = torch.chunk(q, q.shape[0] // self.max_bs, dim=0)
-            k_list = torch.chunk(k, k.shape[0] // self.max_bs, dim=0)
-            v_list = torch.chunk(v, v.shape[0] // self.max_bs, dim=0)
-            out_list = []
-            for q_1, k_1, v_1 in zip(q_list, k_list, v_list):
-                out = xformers.ops.memory_efficient_attention(
-                    q_1, k_1, v_1, attn_bias=None, op=self.attention_op)
-                out_list.append(out)
-            out = torch.cat(out_list, dim=0)
+            out_chunks = []
+            for q1, k1, v1 in zip(
+                    torch.chunk(q,  q.shape[0] // self.max_bs, 0),
+                    torch.chunk(k,  k.shape[0] // self.max_bs, 0),
+                    torch.chunk(v,  v.shape[0] // self.max_bs, 0)):
+                out_chunks.append(_flash_attn(q1, k1, v1))
+            out = torch.cat(out_chunks, dim=0)
         else:
-            out = xformers.ops.memory_efficient_attention(
-                q, k, v, attn_bias=None, op=self.attention_op)
+            out = _flash_attn(q, k, v)
 
         if exists(mask):
             raise NotImplementedError
