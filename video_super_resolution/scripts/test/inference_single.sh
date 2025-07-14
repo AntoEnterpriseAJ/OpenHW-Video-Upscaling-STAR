@@ -23,7 +23,7 @@ set -euo pipefail
 INTERVAL=60
 LOG_DIR="./logs"
 
-MODEL_PATH="/mnt/hdd3/openhardware/star/pretrained_weights/light_deg.pt"
+MODEL_PATH="/opt/openhardware/pretrained_weights/light_deg.pt"
 SAVE_DIR="./results"
 
 SOLVER_MODE="fast"

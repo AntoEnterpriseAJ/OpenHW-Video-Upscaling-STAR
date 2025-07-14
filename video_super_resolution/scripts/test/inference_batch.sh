@@ -8,7 +8,7 @@ set -euo pipefail
 
 VIDEO_DIR='./input/video'
 PROMPT_FILE='./input/text/prompt.txt'
-FRAME_LEN=24
+FRAME_LEN=1
 SCRIPT_SINGLE=./video_super_resolution/scripts/test/inference_single.sh
 
 mapfile -t VIDEOS < <(find "$VIDEO_DIR" -type f -name '*.mp4' | sort)
@@ -30,15 +30,15 @@ for i in "${!VIDEOS[@]}"; do
   "$SCRIPT_SINGLE" \
     --input "$V" \
     --prompt "$P" \
-    --model_path /mnt/hdd3/openhardware/star/pretrained_weights/light_deg.pt \
+    --model_path /opt/openhardware/pretrained_weights/light_deg.pt \
     --save_dir ./results \
     --solver_mode fast \
     --steps 15 \
     --cfg 7.5 \
-    --upscale 4 \
+    --upscale 1 \
     --max_chunk_len "$FRAME_LEN" \
     --log_dir ./logs \
-    --interval 60
+    --interval 1
 
   echo "Finished $V"
 done
