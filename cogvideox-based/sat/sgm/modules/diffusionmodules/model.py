@@ -209,7 +209,7 @@ class MemoryEfficientAttnBlock(nn.Module):
             .contiguous(),
             (q, k, v),
         )
-        out = xformers.ops.memory_efficient_attention(q, k, v, attn_bias=None, op=self.attention_op)
+        out = torch.nn.functional.scaled_dot_product_attention(q, k, v)
 
         out = out.unsqueeze(0).reshape(B, 1, out.shape[1], C).permute(0, 2, 1, 3).reshape(B, out.shape[1], C)
         return rearrange(out, "b (h w) c -> b c h w", b=B, h=H, w=W, c=C)

@@ -320,7 +320,7 @@ class MemoryEfficientCrossAttention(nn.Module):
         )
 
         # actually compute the attention, what we cannot get enough of
-        out = xformers.ops.memory_efficient_attention(q, k, v, attn_bias=None, op=self.attention_op)
+        out = torch.nn.functional.scaled_dot_product_attention(q, k, v)
 
         # TODO: Use this directly in the attention operation, as a bias
         if exists(mask):
