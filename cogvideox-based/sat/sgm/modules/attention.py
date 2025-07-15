@@ -8,6 +8,8 @@ from einops import rearrange, repeat
 from packaging import version
 from torch import nn
 
+from flash_attn import flash_attn_func
+
 if version.parse(torch.__version__) >= version.parse("2.0.0"):
     SDP_IS_AVAILABLE = True
     from torch.backends.cuda import SDPBackend, sdp_kernel
@@ -320,7 +322,7 @@ class MemoryEfficientCrossAttention(nn.Module):
         )
 
         # actually compute the attention, what we cannot get enough of
-        out = xformers.ops.memory_efficient_attention(q, k, v, attn_bias=None, op=self.attention_op)
+        out = flash_attn_func(q, k, v, dropout_p=0.0, causal=False)
 
         # TODO: Use this directly in the attention operation, as a bias
         if exists(mask):
