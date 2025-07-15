@@ -7,12 +7,11 @@ from abc import abstractmethod
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import xformers
-import xformers.ops
 from einops import rearrange
 from fairscale.nn.checkpoint import checkpoint_wrapper
 from timm.models.vision_transformer import Mlp
 
+from flash_attn import flash_attn_func
 
 USE_TEMPORAL_TRANSFORMER = True
 
@@ -161,37 +160,30 @@ class MemoryEfficientCrossAttention(nn.Module):
         k = self.to_k(context)
         v = self.to_v(context)
 
-        b, _, _ = q.shape
-        q, k, v = map(
-            lambda t: t.unsqueeze(3).reshape(b, t.shape[
-                1], self.heads, self.dim_head).permute(0, 2, 1, 3).reshape(
-                    b * self.heads, t.shape[1], self.dim_head).contiguous(),
-            (q, k, v),
-        )
+        b, n, _ = q.shape
 
-        # actually compute the attention, what we cannot get enough of.
-        if q.shape[0] > self.max_bs:
-            q_list = torch.chunk(q, q.shape[0] // self.max_bs, dim=0)
-            k_list = torch.chunk(k, k.shape[0] // self.max_bs, dim=0)
-            v_list = torch.chunk(v, v.shape[0] // self.max_bs, dim=0)
-            out_list = []
-            for q_1, k_1, v_1 in zip(q_list, k_list, v_list):
-                out = xformers.ops.memory_efficient_attention(
-                    q_1, k_1, v_1, attn_bias=None, op=self.attention_op)
-                out_list.append(out)
+        # Reshape inputs to (batch, seq_len, heads, head_dim) as expected by FlashAttention
+        q = q.view(b, n, self.heads, self.dim_head)
+        k = k.view(b, k.shape[1], self.heads, self.dim_head)
+        v = v.view(b, v.shape[1], self.heads, self.dim_head)
+
+        q, k, v = [t.contiguous() for t in (q, k, v)]
+
+        # Compute attention using FlashAttention
+        if b > self.max_bs:
+            num_chunks = (b + self.max_bs - 1) // self.max_bs
+            q_chunks = torch.chunk(q, num_chunks, dim=0)
+            k_chunks = torch.chunk(k, num_chunks, dim=0)
+            v_chunks = torch.chunk(v, num_chunks, dim=0)
+            out_list = [flash_attn_func(qc, kc, vc, dropout_p=0.0, softmax_scale=None, causal=False)
+                        for qc, kc, vc in zip(q_chunks, k_chunks, v_chunks)]
             out = torch.cat(out_list, dim=0)
         else:
-            out = xformers.ops.memory_efficient_attention(
-                q, k, v, attn_bias=None, op=self.attention_op)
+            out = flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False)
+        out = out.view(b, n, self.heads * self.dim_head)
 
         if exists(mask):
             raise NotImplementedError
-        out = (
-            out.unsqueeze(0).reshape(
-                b, self.heads, out.shape[1],
-                self.dim_head).permute(0, 2, 1,
-                                       3).reshape(b, out.shape[1],
-                                                  self.heads * self.dim_head))
         return self.to_out(out)
 
 
