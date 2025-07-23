@@ -11,7 +11,7 @@ from einops import rearrange
 from fairscale.nn.checkpoint import checkpoint_wrapper
 from timm.models.vision_transformer import Mlp
 
-from flash_attn import flash_attn_func
+from flash_attn import flash_attn_func, flash_attn_qkvpacked_func
 
 USE_TEMPORAL_TRANSFORMER = True
 
@@ -169,17 +169,30 @@ class MemoryEfficientCrossAttention(nn.Module):
 
         q, k, v = [t.contiguous() for t in (q, k, v)]
 
-        # Compute attention using FlashAttention
-        if b > self.max_bs:
-            num_chunks = (b + self.max_bs - 1) // self.max_bs
-            q_chunks = torch.chunk(q, num_chunks, dim=0)
-            k_chunks = torch.chunk(k, num_chunks, dim=0)
-            v_chunks = torch.chunk(v, num_chunks, dim=0)
-            out_list = [flash_attn_func(qc, kc, vc, dropout_p=0.0, softmax_scale=None, causal=False)
-                        for qc, kc, vc in zip(q_chunks, k_chunks, v_chunks)]
-            out = torch.cat(out_list, dim=0)
+        # Compute attention using FlashAttention (packed when possible)
+        if k.shape[1] == n:
+            # Same sequence length: we can pack qkv for extra speed
+            qkv = torch.stack((q, k, v), dim=2)  # (b, n, 3, heads, dim_head)
+            if b > self.max_bs:
+                num_chunks = (b + self.max_bs - 1) // self.max_bs
+                qkv_chunks = torch.chunk(qkv, num_chunks, dim=0)
+                out_list = [flash_attn_qkvpacked_func(qkv_c, dropout_p=0.0, softmax_scale=None, causal=False)
+                            for qkv_c in qkv_chunks]
+                out = torch.cat(out_list, dim=0)
+            else:
+                out = flash_attn_qkvpacked_func(qkv, dropout_p=0.0, softmax_scale=None, causal=False)
         else:
-            out = flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False)
+            # Fallback to separate q/k/v path for cross-attention with different sequence lengths
+            if b > self.max_bs:
+                num_chunks = (b + self.max_bs - 1) // self.max_bs
+                q_chunks = torch.chunk(q, num_chunks, dim=0)
+                k_chunks = torch.chunk(k, num_chunks, dim=0)
+                v_chunks = torch.chunk(v, num_chunks, dim=0)
+                out_list = [flash_attn_func(qc, kc, vc, dropout_p=0.0, softmax_scale=None, causal=False)
+                            for qc, kc, vc in zip(q_chunks, k_chunks, v_chunks)]
+                out = torch.cat(out_list, dim=0)
+            else:
+                out = flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False)
         out = out.view(b, n, self.heads * self.dim_head)
 
         if exists(mask):
