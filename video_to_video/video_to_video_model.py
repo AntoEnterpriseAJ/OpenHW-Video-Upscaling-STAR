@@ -34,6 +34,25 @@ class VideoToVideo_sr():
         generator = generator.to(self.device)
         generator.eval()
 
+        # This breaks the model when compiling
+        generator.use_checkpoint = False
+        try:
+            from flash_attn import flash_attn_func, flash_attn_qkvpacked_func
+            import torch._dynamo                                    as _dynamo
+            _dynamo.allow_in_graph(flash_attn_func)
+            _dynamo.allow_in_graph(flash_attn_qkvpacked_func)
+        except Exception:
+            pass # falls back if Flash-Attn not present
+
+        if hasattr(torch, "compile"):
+            generator = torch.compile(
+                generator,
+                mode="reduce-overhead",
+                dynamic=False,
+                fullgraph=False,
+                disable="cudagraphs",
+            )
+
         cfg.model_path = opt.model_path
         load_dict = torch.load(cfg.model_path, map_location='cpu')
         if 'state_dict' in load_dict:
