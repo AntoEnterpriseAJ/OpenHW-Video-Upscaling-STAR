@@ -48,25 +48,31 @@ class STAR():
         self.max_chunk_len=max_chunk_len
 
     def enhance_a_video(self, video_path, prompt):
-        logger.info('input video path: {}'.format(video_path))
-        text = prompt
-        logger.info('text: {}'.format(text))
-        caption = text + self.model.positive_prompt
+        """
+        Enhance a video using the specified prompt.
+        I will wrap key sections with record_functions in the hope to get profiling information
+        """
+        with record_function("video-loading"):
+            logger.info('input video path: {}'.format(video_path))
+            text = prompt
+            logger.info('text: {}'.format(text))
+            caption = text + self.model.positive_prompt
 
-        input_frames, input_fps = load_video(video_path)
-        logger.info('input fps: {}'.format(input_fps))
+            input_frames, input_fps = load_video(video_path)
+            logger.info('input fps: {}'.format(input_fps))
 
-        video_data = preprocess(input_frames)
-        _, _, h, w = video_data.shape
-        logger.info('input resolution: {}'.format((h, w)))
-        target_h, target_w = h * self.upscale, w * self.upscale   # adjust_resolution(h, w, up_scale=4)
-        logger.info('target resolution: {}'.format((target_h, target_w)))
+        with torch.profiler.record_function("preprocessing"):
+            video_data = preprocess(input_frames)
+            _, _, h, w = video_data.shape
+            logger.info('input resolution: {}'.format((h, w)))
+            target_h, target_w = h * self.upscale, w * self.upscale   # adjust_resolution(h, w, up_scale=4)
+            logger.info('target resolution: {}'.format((target_h, target_w)))
 
-        pre_data = {'video_data': video_data, 'y': caption}
-        pre_data['target_res'] = (target_h, target_w)
+            pre_data = {'video_data': video_data, 'y': caption}
+            pre_data['target_res'] = (target_h, target_w)
 
-        total_noise_levels = 900
-        setup_seed(666)
+            total_noise_levels = 900
+            setup_seed(666)
 
         with torch.no_grad():
             data_tensor = collate_fn(pre_data, 'cuda:0')
@@ -75,12 +81,13 @@ class STAR():
                                 max_chunk_len=self.max_chunk_len
                                 )
 
-        output = tensor2vid(output)
+        with torch.profiler.record_function("tensor2vid"):
+            output = tensor2vid(output)
 
-        # Using color fix
-        output = adain_color_fix(output, video_data)
+            # Using color fix
+            output = adain_color_fix(output, video_data)
 
-        save_video(output, self.result_dir, self.file_name, fps=input_fps)
+            save_video(output, self.result_dir, self.file_name, fps=input_fps)
         return os.path.join(self.result_dir, self.file_name)
     
 
@@ -130,8 +137,10 @@ def main():
                 max_chunk_len=max_chunk_len,
                 )
 
-    star.enhance_a_video(input_path, prompt)
-
+    with torch.profiler.profile() as prof:
+        star.enhance_a_video(input_path, prompt)
+    print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
+    print("tensorboard --logdir=./logs")
 
 if __name__ == '__main__':
     main()

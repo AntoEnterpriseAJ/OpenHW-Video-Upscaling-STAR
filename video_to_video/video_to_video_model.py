@@ -75,84 +75,86 @@ class VideoToVideo_sr():
 
     def test(self, input: Dict[str, Any], total_noise_levels=1000, \
                  steps=50, solver_mode='fast', guide_scale=7.5, max_chunk_len=32):
-        video_data = input['video_data']
-        y = input['y']
-        (target_h, target_w) = input['target_res']
+        with torch.profiler.record_function("preprocessing"):
+            video_data = input['video_data']
+            y = input['y']
+            (target_h, target_w) = input['target_res']
 
-        video_data = F.interpolate(video_data, [target_h,target_w], mode='bilinear')
+            video_data = F.interpolate(video_data, [target_h,target_w], mode='bilinear')
 
-        logger.info(f'video_data shape: {video_data.shape}')
-        frames_num, _, h, w = video_data.shape
+            logger.info(f'video_data shape: {video_data.shape}')
+            frames_num, _, h, w = video_data.shape
 
-        padding = pad_to_fit(h, w)
-        video_data = F.pad(video_data, padding, 'constant', 1)
+            padding = pad_to_fit(h, w)
+            video_data = F.pad(video_data, padding, 'constant', 1)
 
-        video_data = video_data.unsqueeze(0)
-        bs = 1
-        video_data = video_data.to(self.device)
+            video_data = video_data.unsqueeze(0)
+            bs = 1
+            video_data = video_data.to(self.device)
 
-        video_data_feature = self.vae_encode(video_data)
-        torch.cuda.empty_cache()
+            video_data_feature = self.vae_encode(video_data)
+            torch.cuda.empty_cache()
 
-        y = self.text_encoder(y).detach()
+            y = self.text_encoder(y).detach()
 
-        with amp.autocast(enabled=True):
+        with torch.profiler.record_function("denoising"):
+            with amp.autocast(enabled=True):
+                t = torch.LongTensor([total_noise_levels-1]).to(self.device)
+                noised_lr = self.diffusion.diffuse(video_data_feature, t)
 
-            t = torch.LongTensor([total_noise_levels-1]).to(self.device)
-            noised_lr = self.diffusion.diffuse(video_data_feature, t)
+                model_kwargs = [{'y': y}, {'y': self.negative_y}]
+                model_kwargs.append({'hint': video_data_feature})
 
-            model_kwargs = [{'y': y}, {'y': self.negative_y}]
-            model_kwargs.append({'hint': video_data_feature})
+                torch.cuda.empty_cache()
+                chunk_inds = make_chunks(frames_num, interp_f_num=0, max_chunk_len=max_chunk_len) if frames_num > max_chunk_len else None
+
+                solver = 'dpmpp_2m_sde' # 'heun' | 'dpmpp_2m_sde' 
+
+                # This tesnor is big and we can't afford to keep it in memory at the same time with vid_tensor_gen
+                gen_vid = self.diffusion.sample_sr(
+                    noise=noised_lr,
+                    model=self.generator,
+                    model_kwargs=model_kwargs,
+                    guide_scale=guide_scale,
+                    guide_rescale=0.2,
+                    solver=solver,
+                    solver_mode=solver_mode,
+                    return_intermediate=None,
+                    steps=steps,
+                    t_max=total_noise_levels - 1,
+                    t_min=0,
+                    discretization='trailing',
+                    chunk_inds=chunk_inds,)
+                # Move to CPU to free up GPU memory
+                gen_vid = gen_vid.cpu() 
+                logger.info("sampling finished.")
+
+                logger.info(f"MEM after sampling   : {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+                logger.info(f"MEM reserved         : {torch.cuda.memory_reserved()/1024**3:.2f}GB")
+
+                # This memory won't be used anyways from now on
+                del noised_lr, video_data_feature
+                model_kwargs.clear()
+                torch.cuda.empty_cache(); gc.collect()
+
+                logger.info(f"MEM after cleanup    : {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+                logger.info(f"MEM reserved cleanup : {torch.cuda.memory_reserved()/1024**3:.2f}GB")
+
+                vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=1)
+
+                logger.info("temporal VAE decoding finished.")
+                logger.info(f"MEM after VAE decode : {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+                logger.info(f"MEM reserved         : {torch.cuda.memory_reserved()/1024**3:.2f}GB")
+
+        with torch.profiler.record_function("postprocessing"):
+            w1, w2, h1, h2 = padding
+            vid_tensor_gen = vid_tensor_gen[:,:,h1:h+h1,w1:w+w1]
+
+            gen_video = rearrange(
+                vid_tensor_gen, '(b f) c h w -> b c f h w', b=bs)
 
             torch.cuda.empty_cache()
-            chunk_inds = make_chunks(frames_num, interp_f_num=0, max_chunk_len=max_chunk_len) if frames_num > max_chunk_len else None
-
-            solver = 'dpmpp_2m_sde' # 'heun' | 'dpmpp_2m_sde' 
-
-            # This tesnor is big and we can't afford to keep it in memory at the same time with vid_tensor_gen
-            gen_vid = self.diffusion.sample_sr(
-                noise=noised_lr,
-                model=self.generator,
-                model_kwargs=model_kwargs,
-                guide_scale=guide_scale,
-                guide_rescale=0.2,
-                solver=solver,
-                solver_mode=solver_mode,
-                return_intermediate=None,
-                steps=steps,
-                t_max=total_noise_levels - 1,
-                t_min=0,
-                discretization='trailing',
-                chunk_inds=chunk_inds,)
-            # Move to CPU to free up GPU memory
-            gen_vid = gen_vid.cpu() 
-            logger.info("sampling finished.")
-
-            logger.info(f"MEM after sampling   : {torch.cuda.memory_allocated()/1024**3:.2f}GB")
-            logger.info(f"MEM reserved         : {torch.cuda.memory_reserved()/1024**3:.2f}GB")
-
-            # This memory won't be used anyways from now on
-            del noised_lr, video_data_feature
-            model_kwargs.clear()
-            torch.cuda.empty_cache(); gc.collect()
-
-            logger.info(f"MEM after cleanup    : {torch.cuda.memory_allocated()/1024**3:.2f}GB")
-            logger.info(f"MEM reserved cleanup : {torch.cuda.memory_reserved()/1024**3:.2f}GB")
-
-            vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=1)
-
-            logger.info("temporal VAE decoding finished.")
-            logger.info(f"MEM after VAE decode : {torch.cuda.memory_allocated()/1024**3:.2f}GB")
-            logger.info(f"MEM reserved         : {torch.cuda.memory_reserved()/1024**3:.2f}GB")
-
-        w1, w2, h1, h2 = padding
-        vid_tensor_gen = vid_tensor_gen[:,:,h1:h+h1,w1:w+w1]
-
-        gen_video = rearrange(
-            vid_tensor_gen, '(b f) c h w -> b c f h w', b=bs)
-
-        torch.cuda.empty_cache()
-        
+            
         return gen_video.type(torch.float32).cpu()
 
     def temporal_vae_decode(self, z, num_f):
