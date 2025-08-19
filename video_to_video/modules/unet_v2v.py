@@ -1716,7 +1716,8 @@ class Vid2VidSDUNet(nn.Module):
 
 class ControlledV2VUNet(Vid2VidSDUNet):
     def __init__(self):
-        super(ControlledV2VUNet, self).__init__()
+        # disable gradient checkpointing at inference
+        super(ControlledV2VUNet, self).__init__(use_checkpoint=False)
         self.VideoControlNet = VideoControlNet()
 
     def forward(self,

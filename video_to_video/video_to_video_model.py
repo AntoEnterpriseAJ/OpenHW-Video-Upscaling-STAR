@@ -40,7 +40,23 @@ class VideoToVideo_sr():
             load_dict = load_dict['state_dict']
         ret = generator.load_state_dict(load_dict, strict=False)
         
-        self.generator = generator.half()
+        # half precision for weights & activations
+        generator = generator.half()
+
+        # torch.compile (Inductor+Triton) for ROCm – biggest win per denoise step
+        if os.environ.get("STAR_COMPILE_UNET", "1") != "0":
+            try:
+                generator = torch.compile(
+                    generator,
+                    mode=os.environ.get("STAR_COMPILE_MODE", "max-autotune"),
+                    fullgraph=False,
+                    dynamic=True,
+                )
+                logger.info("UNet compiled with torch.compile ✅")
+            except Exception as e:
+                logger.warning(f"torch.compile failed, falling back to eager: {e}")
+
+        self.generator = generator
         logger.info('Load model path {}, with local status {}'.format(cfg.model_path, ret))
 
         # Noise scheduler
@@ -160,19 +176,19 @@ class VideoToVideo_sr():
 
     def vae_decode_chunk(self, z, chunk_size: int = 3):
         z = rearrange(z, "b c f h w -> (b f) c h w").half()  # ensure fp16
-        video_cpu = []
+        outputs = []
         for start in range(0, z.shape[0], chunk_size):
             chunk = z[start:start + chunk_size].to(self.device, non_blocking=True)
-
             with torch.cuda.amp.autocast(dtype=torch.float16):
                 num_f = chunk.shape[0]
                 rgb = self.temporal_vae_decode(chunk, num_f)
-
-            video_cpu.append(rgb.detach().cpu()) # off‑load result
-            del chunk, rgb
-            torch.cuda.empty_cache() # free up GPU memory
-
-        return torch.cat(video_cpu, dim=0) # lives on CPU
+            # pinned CPU copy (slightly faster sync & helpful if you pipeline later)
+            host = torch.empty_like(rgb, device="cpu", pin_memory=True)
+            host.copy_(rgb, non_blocking=True)
+            outputs.append(host)
+            del chunk, rgb, host
+            torch.cuda.empty_cache()
+        return torch.cat(outputs, dim=0)  # on CPU
 
     def vae_encode(self, t, chunk_size=1):
         num_f = t.shape[1]

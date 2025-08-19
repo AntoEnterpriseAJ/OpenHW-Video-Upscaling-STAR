@@ -5,6 +5,27 @@ import json
 from typing import Any, Dict, List, Mapping, Tuple
 from easydict import EasyDict
 
+# --- perf toggles (must be set BEFORE importing model modules) ---
+# keep attention math in fp16 (faster than the default fp32 path in CrossAttention)
+os.environ.setdefault("ATTN_PRECISION", "fp16")
+# compile the UNet by default (you can override with STAR_COMPILE_UNET=0)
+os.environ.setdefault("STAR_COMPILE_UNET", "1")
+os.environ.setdefault("STAR_COMPILE_MODE", "max-autotune")  # or: reduce-overhead
+# optional: let Inductor persist kernels between runs
+os.environ.setdefault("TORCHINDUCTOR_CACHE_DIR", os.path.expanduser("~/.cache/torchinductor"))
+# Optional: set STAR_DISABLE_CUDAGRAPHS=1 to turn off Inductor CUDA-Graphs (slower than cloning, but robust)
+if os.environ.get("STAR_DISABLE_CUDAGRAPHS", "0") == "1":
+    try:
+        import torch._inductor.config as _inductor_config
+        _inductor_config.use_cuda_graphs = False
+        try:
+            # some versions keep the nested flag
+            _inductor_config.triton.cudagraphs = False  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    except Exception:
+        pass
+
 import sys
 base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
 sys.path.append(base_path)

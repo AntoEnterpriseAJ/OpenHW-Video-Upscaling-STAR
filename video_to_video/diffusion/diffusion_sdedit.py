@@ -11,6 +11,11 @@ logger = get_logger()
 
 __all__ = ['GaussianDiffusion']
 
+try:
+    from torch.compiler import cudagraph_mark_step_begin
+except Exception:
+    def cudagraph_mark_step_begin():
+        return
 
 def _i(tensor, t, x):
     shape = (x.size(0), ) + (1, ) * (x.ndim - 1)
@@ -71,21 +76,26 @@ class GaussianDiffusion(object):
         # prediction
         if guide_scale is None:  
             assert isinstance(model_kwargs, dict)
-            out = model(xt, t=t, **model_kwargs)
+            cudagraph_mark_step_begin()
+            out = model(xt, t=t, **model_kwargs).clone()
         else:
             # classifier-free guidance
             assert isinstance(model_kwargs, list)
             if len(model_kwargs) > 3:
-                y_out = model(xt, t=t, **model_kwargs[0], **model_kwargs[2], **model_kwargs[3], **model_kwargs[4], **model_kwargs[5])
+                cudagraph_mark_step_begin()
+                y_out = model(xt, t=t, **model_kwargs[0], **model_kwargs[2], **model_kwargs[3], **model_kwargs[4], **model_kwargs[5]).clone()
             else:
-                y_out = model(xt, t=t, **model_kwargs[0], **model_kwargs[2], variant_info=variant_info)
+                cudagraph_mark_step_begin()
+                y_out = model(xt, t=t, **model_kwargs[0], **model_kwargs[2], variant_info=variant_info).clone()
             if guide_scale == 1.:
                 out = y_out
             else:
                 if len(model_kwargs) > 3:
-                    u_out = model(xt, t=t, **model_kwargs[1], **model_kwargs[2], **model_kwargs[3], **model_kwargs[4], **model_kwargs[5])
+                    cudagraph_mark_step_begin()
+                    u_out = model(xt, t=t, **model_kwargs[1], **model_kwargs[2], **model_kwargs[3], **model_kwargs[4], **model_kwargs[5]).clone()
                 else:
-                    u_out = model(xt, t=t, **model_kwargs[1], **model_kwargs[2], variant_info=variant_info)
+                    cudagraph_mark_step_begin()
+                    u_out = model(xt, t=t, **model_kwargs[1], **model_kwargs[2], variant_info=variant_info).clone()
                 out = u_out + guide_scale * (y_out - u_out)
 
                 if guide_rescale is not None:

@@ -8,6 +8,13 @@ from video_to_video.utils.logger import get_logger
 
 logger = get_logger()
 
+# ---- CUDA Graphs safety: step marker is a no-op on older PyTorch ----
+try:
+    from torch.compiler import cudagraph_mark_step_begin  # PyTorch ≥ 2.5
+except Exception:
+    def cudagraph_mark_step_begin():
+        return
+
 def get_ancestral_step(sigma_from, sigma_to, eta=1.):
     """
     Calculates the noise level (sigma_down) to step down to and the amount
@@ -53,11 +60,13 @@ def sample_heun(noise,
             x = x + eps * (sigma_hat**2 - sigmas[i]**2)**0.5
         if sigmas[i] == float('inf'):
             # Euler method
-            denoised = model(noise, sigma_hat)
+            cudagraph_mark_step_begin()
+            denoised = model(noise, sigma_hat).clone()
             x = denoised + sigmas[i + 1] * (gamma + 1) * noise
         else:
             _, c_in = get_scalings(sigma_hat)
-            denoised = model(x * c_in, sigma_hat)
+            cudagraph_mark_step_begin()
+            denoised = model(x * c_in, sigma_hat).clone()
             d = (x - denoised) / sigma_hat
             dt = sigmas[i + 1] - sigma_hat
             if sigmas[i + 1] == 0:
@@ -67,7 +76,8 @@ def sample_heun(noise,
                 # Heun's method
                 x_2 = x + d * dt
                 _, c_in = get_scalings(sigmas[i + 1])
-                denoised_2 = model(x_2 * c_in, sigmas[i + 1])
+                cudagraph_mark_step_begin()
+                denoised_2 = model(x_2 * c_in, sigmas[i + 1]).clone()
                 d_2 = (x_2 - denoised_2) / sigmas[i + 1]
                 d_prime = (d + d_2) / 2
                 x = x + d_prime * dt
@@ -165,11 +175,13 @@ def sample_dpmpp_2m_sde(noise,
         logger.info(f'step: {i}')
         if sigmas[i] == float('inf'):
             # Euler method
-            denoised = model(noise, sigmas[i], variant_info=variant_info)
+            cudagraph_mark_step_begin()
+            denoised = model(noise, sigmas[i], variant_info=variant_info).clone()
             x = denoised + sigmas[i + 1] * noise
         else:
             _, c_in = get_scalings(sigmas[i])
-            denoised = model(x * c_in, sigmas[i], variant_info=variant_info)
+            cudagraph_mark_step_begin()
+            denoised = model(x * c_in, sigmas[i], variant_info=variant_info).clone()
             if sigmas[i + 1] == 0:
                 # Denoising step
                 x = denoised
