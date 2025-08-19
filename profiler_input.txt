@@ -1,0 +1,10 @@
+pmc: GRBM_COUNT, SQ_BUSY_CYCLES, WAVE_DEP_WAIT, L2CacheHit, OccupancyPercent, MemUnitBusy
+
+range: 0 : 2
+gpu: 0
+
+hip-trace : true
+hsa-trace : true
+roctx-trace : true
+
+output : ./gpu_logs

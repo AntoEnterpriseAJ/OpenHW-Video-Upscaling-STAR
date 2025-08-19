@@ -17,7 +17,6 @@ from inference_utils import *
 
 logger = get_logger()
 
-
 class STAR():
     def __init__(self, 
                  result_dir='./results/',
@@ -52,7 +51,7 @@ class STAR():
         Enhance a video using the specified prompt.
         I will wrap key sections with record_functions in the hope to get profiling information
         """
-        with record_function("video-loading"):
+        with torch.profiler.record_function("video-loading"):
             logger.info('input video path: {}'.format(video_path))
             text = prompt
             logger.info('text: {}'.format(text))
@@ -140,7 +139,7 @@ def main():
     with torch.profiler.profile() as prof:
         star.enhance_a_video(input_path, prompt)
     print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
-    print("tensorboard --logdir=./logs")
+    print("tensorboard --logdir=./profiling")
 
 if __name__ == '__main__':
     main()

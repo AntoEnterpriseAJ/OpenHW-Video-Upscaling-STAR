@@ -8,7 +8,7 @@ set -euo pipefail
 
 VIDEO_DIR='./input/video'
 PROMPT_FILE='./input/text/prompt.txt'
-FRAME_LEN=1
+FRAME_LEN=12
 SCRIPT_SINGLE=./video_super_resolution/scripts/test/inference_single.sh
 
 mapfile -t VIDEOS < <(find "$VIDEO_DIR" -type f -name '*.mp4' | sort)
@@ -35,7 +35,7 @@ for i in "${!VIDEOS[@]}"; do
     --solver_mode fast \
     --steps 15 \
     --cfg 7.5 \
-    --upscale 1 \
+    --upscale 2 \
     --max_chunk_len "$FRAME_LEN" \
     --log_dir ./logs \
     --interval 1

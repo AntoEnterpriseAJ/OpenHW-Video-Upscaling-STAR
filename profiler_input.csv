@@ -1,0 +1,3 @@
+Index,KernelName,gpu-id,queue-id,queue-index,pid,tid,grd,wgr,lds,scr,arch_vgpr,accum_vgpr,sgpr,wave_size,sig,obj,GRBM_COUNT,SQ_BUSY_CYCLES,WAVE_DEP_WAIT,L2CacheHit,OccupancyPercent,MemUnitBusy
+0,"__amd_rocclr_copyBuffer.kd",1,0,0,358209,358209,512,512,0,0,16,0,128,32,0x0,0x746b96615c40,0,1100104,0.0000000000,0.0000000000,0.0000000000,0.0000000000
+1,"__amd_rocclr_copyBuffer.kd",1,0,2,358209,358209,512,512,0,0,16,0,128,32,0x0,0x746b96615c40,0,4210,0.0000000000,0.0000000000,0.0000000000,0.0000000000
