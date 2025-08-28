@@ -7,9 +7,7 @@ from abc import abstractmethod
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import xformers
-import xformers.ops
-from einops import rearrange
+from einops import rearrange, repeat
 from fairscale.nn.checkpoint import checkpoint_wrapper
 from timm.models.vision_transformer import Mlp
 
@@ -151,47 +149,53 @@ class MemoryEfficientCrossAttention(nn.Module):
         self.to_q = nn.Linear(query_dim, inner_dim, bias=False)
         self.to_k = nn.Linear(context_dim, inner_dim, bias=False)
         self.to_v = nn.Linear(context_dim, inner_dim, bias=False)
+
         self.to_out = nn.Sequential(
             nn.Linear(inner_dim, query_dim), nn.Dropout(dropout))
-        self.attention_op: Optional[Any] = None
+
+    def _reshape(self, t):
+        return rearrange(t, 'b n (h d) -> b h n d', h=self.heads).contiguous()
 
     def forward(self, x, context=None, mask=None):
-        q = self.to_q(x)
         context = default(context, x)
-        k = self.to_k(context)
-        v = self.to_v(context)
 
-        b, _, _ = q.shape
-        q, k, v = map(
-            lambda t: t.unsqueeze(3).reshape(b, t.shape[
-                1], self.heads, self.dim_head).permute(0, 2, 1, 3).reshape(
-                    b * self.heads, t.shape[1], self.dim_head).contiguous(),
-            (q, k, v),
-        )
-
-        # actually compute the attention, what we cannot get enough of.
-        if q.shape[0] > self.max_bs:
-            q_list = torch.chunk(q, q.shape[0] // self.max_bs, dim=0)
-            k_list = torch.chunk(k, k.shape[0] // self.max_bs, dim=0)
-            v_list = torch.chunk(v, v.shape[0] // self.max_bs, dim=0)
-            out_list = []
-            for q_1, k_1, v_1 in zip(q_list, k_list, v_list):
-                out = xformers.ops.memory_efficient_attention(
-                    q_1, k_1, v_1, attn_bias=None, op=self.attention_op)
-                out_list.append(out)
-            out = torch.cat(out_list, dim=0)
+        if context is x:
+            w_cat = torch.cat([self.to_q.weight, self.to_k.weight, self.to_v.weight], dim=0)
+            qkv = F.linear(x, w_cat)
+            q, k, v = qkv.split(qkv.shape[-1] // 3, dim=-1)
         else:
-            out = xformers.ops.memory_efficient_attention(
-                q, k, v, attn_bias=None, op=self.attention_op)
+            q = self.to_q(x)
+            k = self.to_k(context)
+            v = self.to_v(context)
 
-        if exists(mask):
-            raise NotImplementedError
-        out = (
-            out.unsqueeze(0).reshape(
-                b, self.heads, out.shape[1],
-                self.dim_head).permute(0, 2, 1,
-                                       3).reshape(b, out.shape[1],
-                                                  self.heads * self.dim_head))
+        q, k, v = self._reshape(q), self._reshape(k), self._reshape(v)
+
+        if q.dtype == torch.float32:
+            prefer = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            q = q.to(prefer); k = k.to(prefer); v = v.to(prefer)
+
+        if q.size(0) > self.max_bs:
+            qb = torch.chunk(q, math.ceil(q.size(0)/self.max_bs), dim=0)
+            kb = torch.chunk(k, math.ceil(k.size(0)/self.max_bs), dim=0)
+            vb = torch.chunk(v, math.ceil(v.size(0)/self.max_bs), dim=0)
+        else:
+            qb, kb, vb = [q], [k], [v]
+
+        outs = []
+
+        try:
+            from torch.nn.attention import sdpa_kernel, SDPBackend
+            sdpa_ctx = sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION)
+        except Exception:
+            import contextlib
+            sdpa_ctx = contextlib.nullcontext()
+
+        with sdpa_ctx:
+            for qc, kc, vc in zip(qb, kb, vb):
+                outs.append(F.scaled_dot_product_attention(qc, kc, vc, attn_mask=None, dropout_p=0.0, is_causal=False))
+
+        out = torch.cat(outs, dim=0) if len(outs) > 1 else outs[0]
+        out = rearrange(out, 'b h n d -> b n (h d)').contiguous()
         return self.to_out(out)
 
 
@@ -344,36 +348,19 @@ class CrossAttention(nn.Module):
 
     def forward(self, x, context=None, mask=None):
         h = self.heads
-
         q = self.to_q(x)
         context = default(context, x)
         k = self.to_k(context)
         v = self.to_v(context)
 
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h),
-                      (q, k, v))
+        q = rearrange(q, 'b n (h d) -> b h n d', h=h).contiguous()
+        k = rearrange(k, 'b n (h d) -> b h n d', h=h).contiguous()
+        v = rearrange(v, 'b n (h d) -> b h n d', h=h).contiguous()
 
-        # force cast to fp32 to avoid overflowing
-        if _ATTN_PRECISION == 'fp32':
-            with torch.autocast(enabled=False, device_type='cuda'):
-                q, k = q.float(), k.float()
-                sim = torch.einsum('b i d, b j d -> b i j', q, k) * self.scale
-        else:
-            sim = torch.einsum('b i d, b j d -> b i j', q, k) * self.scale
-
-        del q, k
-
-        if exists(mask):
-            mask = rearrange(mask, 'b ... -> b (...)')
-            max_neg_value = -torch.finfo(sim.dtype).max
-            mask = repeat(mask, 'b j -> (b h) () j', h=h)
-            sim.masked_fill_(~mask, max_neg_value)
-
-        # attention, what we cannot get enough of
-        sim = sim.softmax(dim=-1)
-
-        out = torch.einsum('b i j, b j d -> b i d', sim, v)
-        out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
+        out = F.scaled_dot_product_attention(
+            q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False
+        )
+        out = rearrange(out, 'b h n d -> b n (h d)').contiguous()
         return self.to_out(out)
 
 
