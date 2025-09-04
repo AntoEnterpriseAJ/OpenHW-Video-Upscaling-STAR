@@ -183,16 +183,8 @@ class MemoryEfficientCrossAttention(nn.Module):
 
         outs = []
 
-        try:
-            from torch.nn.attention import sdpa_kernel, SDPBackend
-            sdpa_ctx = sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION)
-        except Exception:
-            import contextlib
-            sdpa_ctx = contextlib.nullcontext()
-
-        with sdpa_ctx:
-            for qc, kc, vc in zip(qb, kb, vb):
-                outs.append(F.scaled_dot_product_attention(qc, kc, vc, attn_mask=None, dropout_p=0.0, is_causal=False))
+        for qc, kc, vc in zip(qb, kb, vb):
+            outs.append(F.scaled_dot_product_attention(qc, kc, vc, attn_mask=None, dropout_p=0.0, is_causal=False))
 
         out = torch.cat(outs, dim=0) if len(outs) > 1 else outs[0]
         out = rearrange(out, 'b h n d -> b n (h d)').contiguous()
@@ -1572,7 +1564,7 @@ class Vid2VidSDUNet(nn.Module):
             time_rel_pos_bias = None
 
         # embeddings
-        e = self.time_embed(sinusoidal_embedding(t, self.dim))
+        e = self.time_embed(sinusoidal_embedding(t, self.dim).to(x.dtype))
         context = y
 
         # repeat f times for spatial e and context
@@ -1749,7 +1741,7 @@ class ControlledV2VUNet(Vid2VidSDUNet):
         else:
             time_rel_pos_bias = None
 
-        e = self.time_embed(sinusoidal_embedding(t, self.dim)) 
+        e = self.time_embed(sinusoidal_embedding(t, self.dim).to(x.dtype))
         e = e.repeat_interleave(repeats=f, dim=0)
 
         # context = y
@@ -2158,7 +2150,7 @@ class VideoControlNet(nn.Module):
             hint = self.input_hint_block(hint)
             # hint = rearrange(hint, '(b f) c h w -> b c f h w', b = batch)
 
-        e = self.time_embed(sinusoidal_embedding(t, self.dim)) 
+        e = self.time_embed(sinusoidal_embedding(t, self.dim).to(x.dtype))
         e = e.repeat_interleave(repeats=f, dim=0)
         
         context = y.repeat_interleave(repeats=f, dim=0)
