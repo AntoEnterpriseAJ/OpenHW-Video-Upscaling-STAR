@@ -1,8 +1,16 @@
 import torch, os
 from torch import amp
+import torch.nn.functional as F
 
-torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.benchmark = False
 # os.environ["TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL"] = "1" # I think this is default anyways
+
+os.environ.setdefault("TORCHINDUCTOR_CACHE_DIR", "/opt/openhardware/inductor_cache")
+os.environ.setdefault("TRITON_CACHE_DIR", "/opt/openhardware/triton_cache")
+
+# Optional: see why recompiles happen (first few runs)
+# os.environ.setdefault("TORCH_LOGS", "inductor,graph_breaks")
+# os.environ.setdefault("TORCH_COMPILE_DEBUG", "1")
 
 from argparse import ArgumentParser, Namespace
 import json

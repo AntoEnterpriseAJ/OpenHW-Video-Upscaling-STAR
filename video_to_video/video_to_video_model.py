@@ -30,9 +30,13 @@ class VideoToVideo_sr():
         logger.info(f'Build encoder with FrozenOpenCLIPEmbedder')
 
         # U-Net with ControlNet
-        generator = ControlledV2VUNet()
-        generator = generator.to(self.device)
-        generator.eval()
+        generator = ControlledV2VUNet().to(self.device).eval()
+        
+        # disable fairscale checkpoint wrapping for inference (helps torch.compile)
+        generator.use_checkpoint = False
+        for m in generator.modules():
+            if hasattr(m, "use_checkpoint"):
+                m.use_checkpoint = False
 
         cfg.model_path = opt.model_path
         load_dict = torch.load(cfg.model_path, map_location='cpu')
@@ -40,7 +44,15 @@ class VideoToVideo_sr():
             load_dict = load_dict['state_dict']
         ret = generator.load_state_dict(load_dict, strict=False)
         
-        self.generator = generator.half()
+        # Prefer bf16 on
+        self.prefer = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        generator = generator.to(dtype=self.prefer)
+
+        # Compile the generator
+        compile_opts = dict(backend="inductor", mode="reduce-overhead", dynamic=False, fullgraph=True)
+        generator = torch.compile(generator, **compile_opts)
+        self.generator = generator
+
         logger.info('Load model path {}, with local status {}'.format(cfg.model_path, ret))
 
         # Noise scheduler
@@ -70,7 +82,7 @@ class VideoToVideo_sr():
         self.positive_prompt = cfg.positive_prompt
 
         negative_y = text_encoder(self.negative_prompt).detach()
-        self.negative_y = negative_y
+        self.negative_y = negative_y.to(dtype=self.prefer)
 
 
     def test(self, input: Dict[str, Any], total_noise_levels=1000, \
@@ -94,15 +106,15 @@ class VideoToVideo_sr():
         video_data_feature = self.vae_encode(video_data)
         torch.cuda.empty_cache()
 
-        y = self.text_encoder(y).detach()
+        y = self.text_encoder(y).detach().to(dtype=self.generator.out[0].weight.dtype)
 
-        with amp.autocast(enabled=True):
-
+        with torch.inference_mode(), amp.autocast(dtype=self.prefer):
+            
             t = torch.LongTensor([total_noise_levels-1]).to(self.device)
             noised_lr = self.diffusion.diffuse(video_data_feature, t)
 
             model_kwargs = [{'y': y}, {'y': self.negative_y}]
-            model_kwargs.append({'hint': video_data_feature})
+            model_kwargs.append({'hint': video_data_feature, 'hint_chunk': None})
 
             torch.cuda.empty_cache()
             chunk_inds = make_chunks(frames_num, interp_f_num=0, max_chunk_len=max_chunk_len) if frames_num > max_chunk_len else None
