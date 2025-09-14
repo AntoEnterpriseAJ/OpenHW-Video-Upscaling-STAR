@@ -7,6 +7,7 @@ import gc
 import torch
 import torch.cuda.amp as amp
 import torch.nn.functional as F
+import torch._dynamo
 
 from video_to_video.modules import *
 from video_to_video.utils.config import cfg
@@ -33,6 +34,15 @@ class VideoToVideo_sr():
         generator = ControlledV2VUNet()
         generator = generator.to(self.device)
         generator.eval()
+
+        if hasattr(generator, "use_checkpoint"):
+            generator.use_checkpoint = False
+        for m in generator.modules():
+            if hasattr(m, "use_checkpoint"):
+                m.use_checkpoint = False
+
+        # torch._dynamo.config.suppress_errors = True
+        generator = torch.compile(generator, mode="reduce-overhead", fullgraph=False, dynamic=False, backend="inductor")
 
         cfg.model_path = opt.model_path
         load_dict = torch.load(cfg.model_path, map_location='cpu')

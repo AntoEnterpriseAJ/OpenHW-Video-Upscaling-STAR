@@ -18,6 +18,11 @@ from inference_utils import *
 
 logger = get_logger()
 
+os.environ.setdefault(
+    "TORCHINDUCTOR_CACHE_DIR",
+    os.path.expanduser("~/.torchinductor_cache")
+)
+
 
 class STAR():
     def __init__(self, 

@@ -76,16 +76,16 @@ class GaussianDiffusion(object):
             # classifier-free guidance
             assert isinstance(model_kwargs, list)
             if len(model_kwargs) > 3:
-                y_out = model(xt, t=t, **model_kwargs[0], **model_kwargs[2], **model_kwargs[3], **model_kwargs[4], **model_kwargs[5])
+                y_out = model(xt, t=t, **model_kwargs[0], **model_kwargs[2], **model_kwargs[3], **model_kwargs[4], **model_kwargs[5]).clone()
             else:
-                y_out = model(xt, t=t, **model_kwargs[0], **model_kwargs[2], variant_info=variant_info)
+                y_out = model(xt, t=t, **model_kwargs[0], **model_kwargs[2], variant_info=variant_info).clone()
             if guide_scale == 1.:
                 out = y_out
             else:
                 if len(model_kwargs) > 3:
-                    u_out = model(xt, t=t, **model_kwargs[1], **model_kwargs[2], **model_kwargs[3], **model_kwargs[4], **model_kwargs[5])
+                    u_out = model(xt, t=t, **model_kwargs[1], **model_kwargs[2], **model_kwargs[3], **model_kwargs[4], **model_kwargs[5]).clone()
                 else:
-                    u_out = model(xt, t=t, **model_kwargs[1], **model_kwargs[2], variant_info=variant_info)
+                    u_out = model(xt, t=t, **model_kwargs[1], **model_kwargs[2], variant_info=variant_info).clone()
                 out = u_out + guide_scale * (y_out - u_out)
 
                 if guide_rescale is not None:
