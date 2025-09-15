@@ -7,7 +7,7 @@ import gc
 import torch
 import torch.cuda.amp as amp
 import torch.nn.functional as F
-import torch._dynamo
+import torch._dynamo as dynamo
 
 from video_to_video.modules import *
 from video_to_video.utils.config import cfg
@@ -31,9 +31,7 @@ class VideoToVideo_sr():
         logger.info(f'Build encoder with FrozenOpenCLIPEmbedder')
 
         # U-Net with ControlNet
-        generator = ControlledV2VUNet()
-        generator = generator.to(self.device)
-        generator.eval()
+        generator = ControlledV2VUNet().to(self.device)
 
         if hasattr(generator, "use_checkpoint"):
             generator.use_checkpoint = False
@@ -41,17 +39,19 @@ class VideoToVideo_sr():
             if hasattr(m, "use_checkpoint"):
                 m.use_checkpoint = False
 
-        # torch._dynamo.config.suppress_errors = True
+        cfg.model_path = opt.model_path
+        load_dict = torch.load(cfg.model_path, map_location="cpu")
+        if "state_dict" in load_dict:
+            load_dict = load_dict["state_dict"]
+        ret = generator.load_state_dict(load_dict, strict=False)
+
+        generator = generator.half()
+        generator.eval()
+
         generator = torch.compile(generator, mode="reduce-overhead", fullgraph=False, dynamic=False, backend="inductor")
 
-        cfg.model_path = opt.model_path
-        load_dict = torch.load(cfg.model_path, map_location='cpu')
-        if 'state_dict' in load_dict:
-            load_dict = load_dict['state_dict']
-        ret = generator.load_state_dict(load_dict, strict=False)
-        
-        self.generator = generator.half()
-        logger.info('Load model path {}, with local status {}'.format(cfg.model_path, ret))
+        self.generator = generator
+        logger.info("Load model path {}, with local status {}".format(cfg.model_path, ret))
 
         # Noise scheduler
         sigmas = noise_schedule(
