@@ -1572,7 +1572,7 @@ class Vid2VidSDUNet(nn.Module):
             time_rel_pos_bias = None
 
         # embeddings
-        e = self.time_embed(sinusoidal_embedding(t, self.dim))
+        e = self.time_embed(sinusoidal_embedding(t, self.dim).to(x.dtype))
         context = y
 
         # repeat f times for spatial e and context
@@ -1749,7 +1749,7 @@ class ControlledV2VUNet(Vid2VidSDUNet):
         else:
             time_rel_pos_bias = None
 
-        e = self.time_embed(sinusoidal_embedding(t, self.dim)) 
+        e = self.time_embed(sinusoidal_embedding(t, self.dim).to(x.dtype))
         e = e.repeat_interleave(repeats=f, dim=0)
 
         # context = y
@@ -2158,7 +2158,7 @@ class VideoControlNet(nn.Module):
             hint = self.input_hint_block(hint)
             # hint = rearrange(hint, '(b f) c h w -> b c f h w', b = batch)
 
-        e = self.time_embed(sinusoidal_embedding(t, self.dim)) 
+        e = self.time_embed(sinusoidal_embedding(t, self.dim).to(x.dtype))
         e = e.repeat_interleave(repeats=f, dim=0)
         
         context = y.repeat_interleave(repeats=f, dim=0)

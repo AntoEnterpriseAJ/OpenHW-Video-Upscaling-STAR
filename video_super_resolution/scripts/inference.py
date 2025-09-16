@@ -1,9 +1,6 @@
 import torch, os
 from torch import amp
 
-torch.backends.cudnn.benchmark = True
-# os.environ["TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL"] = "1" # I think this is default anyways
-
 from argparse import ArgumentParser, Namespace
 import json
 from typing import Any, Dict, List, Mapping, Tuple
