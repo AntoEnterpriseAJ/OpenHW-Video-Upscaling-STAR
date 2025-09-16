@@ -7,6 +7,8 @@ from .solvers_sdedit import sample_dpmpp_2m_sde, sample_heun
 
 from video_to_video.utils.logger import get_logger
 
+from hip import roctx
+
 logger = get_logger()
 
 __all__ = ['GaussianDiffusion']
@@ -257,8 +259,12 @@ class GaussianDiffusion(object):
             sigmas = torch.cat([sigmas[:-2], sigmas[-1:]])
         
         fn = model_chunk_fn if chunk_inds is not None else model_fn
+
+        roctx.range_push("SolverLoop")
         x0 = solver_fn(
-            noise, fn, sigmas, show_progress=show_progress, **kwargs)
+            noise, fn, sigmas, variant_info=variant_info,
+            show_progress=show_progress, **kwargs)
+        roctx.range_pop()
         return (x0, intermediates) if return_intermediate is not None else x0
 
     @torch.no_grad()

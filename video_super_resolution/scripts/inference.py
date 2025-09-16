@@ -1,6 +1,8 @@
 import torch, os
 from torch import amp
 
+from hip import roctx
+
 from argparse import ArgumentParser, Namespace
 import json
 from typing import Any, Dict, List, Mapping, Tuple
@@ -69,20 +71,26 @@ class STAR():
         total_noise_levels = 900
         setup_seed(666)
 
-        with torch.no_grad():
-            data_tensor = collate_fn(pre_data, 'cuda:0')
-            output = self.model.test(data_tensor, total_noise_levels, steps=self.steps, \
-                                solver_mode=self.solver_mode, guide_scale=self.guide_scale, \
-                                max_chunk_len=self.max_chunk_len
-                                )
+        roctx.range_push(f"STAR::enhance_a_video[{os.path.basename(video_path)}]")
+        try:
+            with torch.no_grad():
+                data_tensor = collate_fn(pre_data, 'cuda:0')
+                output = self.model.test(
+                    data_tensor, total_noise_levels,
+                    steps=self.steps,
+                    solver_mode=self.solver_mode,
+                    guide_scale=self.guide_scale,
+                    max_chunk_len=self.max_chunk_len
+                )
 
-        output = tensor2vid(output)
+            output = tensor2vid(output)
+            # Using color fix
+            output = adain_color_fix(output, video_data)
 
-        # Using color fix
-        output = adain_color_fix(output, video_data)
-
-        save_video(output, self.result_dir, self.file_name, fps=input_fps)
-        return os.path.join(self.result_dir, self.file_name)
+            save_video(output, self.result_dir, self.file_name, fps=input_fps)
+            return os.path.join(self.result_dir, self.file_name)
+        finally:
+            roctx.range_pop()
     
 
 def parse_args():
