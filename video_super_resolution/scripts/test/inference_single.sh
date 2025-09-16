@@ -29,8 +29,8 @@ SAVE_DIR="./results"
 SOLVER_MODE="fast"
 STEPS=15
 CFG=7.5
-UPSCALE=4
-MAX_CHUNK_LEN=24
+UPSCALE=2
+MAX_CHUNK_LEN=12
 
 ####################
 # Arg parsing

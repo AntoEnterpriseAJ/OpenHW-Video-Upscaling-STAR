@@ -184,7 +184,7 @@ class MemoryEfficientCrossAttention(nn.Module):
         outs = []
 
         try:
-            from torch.nn.attention import sdpa_kernel, SDPBackend
+            from triton_sdpa import sdpa_kernel, SDPBackend
             sdpa_ctx = sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION)
         except Exception:
             import contextlib
