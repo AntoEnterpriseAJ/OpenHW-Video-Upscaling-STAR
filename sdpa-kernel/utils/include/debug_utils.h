@@ -4,6 +4,7 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_bfloat16.h>
 #include <cstdio>
+#include <vector>
 #include <string>
 
 namespace sdpa {
@@ -170,7 +171,7 @@ void print_tensor_stats(const T* data, int size, const std::string& name);
 // Device-side debugging
 __device__ void print_thread_info();
 __device__ void print_block_info();
-__device__ void print_bfloat16(__hip_bfloat16 val, const char* name = "value");
+__device__ void print_bfloat16(hip_bfloat16 val, const char* name = "value");
 
 // Validation utilities
 bool validate_tensor_shape(const std::vector<int>& shape);

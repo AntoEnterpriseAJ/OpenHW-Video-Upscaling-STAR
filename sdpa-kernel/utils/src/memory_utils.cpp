@@ -71,12 +71,12 @@ hipError_t HipMemoryManager::prefetchToHost(T *ptr, size_t count) {
 
 // Explicit template instantiations
 template hipError_t
-HipMemoryManager::allocateDevice<__hip_bfloat16>(__hip_bfloat16 **, size_t,
+HipMemoryManager::allocateDevice<hip_bfloat16>(hip_bfloat16 **, size_t,
                                                  size_t);
 template hipError_t HipMemoryManager::allocateDevice<float>(float **, size_t,
                                                             size_t);
 template hipError_t
-HipMemoryManager::allocateHost<__hip_bfloat16>(__hip_bfloat16 **, size_t);
+HipMemoryManager::allocateHost<hip_bfloat16>(hip_bfloat16 **, size_t);
 template hipError_t HipMemoryManager::allocateHost<float>(float **, size_t);
 
 MemoryPool::MemoryPool(size_t initial_size)
@@ -172,8 +172,8 @@ void MemoryPool::reset() {
 }
 
 // Device-side shared memory specializations
-template <> __device__ __hip_bfloat16 *getSharedMemory<__hip_bfloat16>() {
-  extern __shared__ __hip_bfloat16 shared_bf16[];
+template <> __device__ hip_bfloat16 *getSharedMemory<hip_bfloat16>() {
+  extern __shared__ hip_bfloat16 shared_bf16[];
   return shared_bf16;
 }
 

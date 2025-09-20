@@ -1,0 +1,72 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "default",
+            "displayName": "Default Config",
+            "description": "Default build using amdclang++",
+            "generator": "Unix Makefiles",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_COMPILER": "amdclang++",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "ROCM_PATH": "/opt/rocm"
+            }
+        },
+        {
+            "name": "debug",
+            "displayName": "Debug Build",
+            "description": "Debug build with amdclang++",
+            "generator": "Unix Makefiles",
+            "binaryDir": "${sourceDir}/build-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_COMPILER": "amdclang++",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "ROCM_PATH": "/opt/rocm"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release Build", 
+            "description": "Optimized release build",
+            "generator": "Unix Makefiles",
+            "binaryDir": "${sourceDir}/build-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_COMPILER": "amdclang++",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "ROCM_PATH": "/opt/rocm",
+                "BUILD_TESTS": "OFF",
+                "BUILD_EXAMPLES": "OFF"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "default",
+            "configurePreset": "default",
+            "jobs": 0
+        },
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "jobs": 0
+        },
+        {
+            "name": "release",
+            "configurePreset": "release", 
+            "jobs": 0
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "default",
+            "configurePreset": "default",
+            "output": {
+                "outputOnFailure": true
+            }
+        }
+    ]
+}

@@ -85,7 +85,7 @@ template<typename T>
 __device__ T* getSharedMemory();
 
 template<>
-__device__ __hip_bfloat16* getSharedMemory<__hip_bfloat16>();
+__device__ hip_bfloat16* getSharedMemory<hip_bfloat16>();
 
 template<>
 __device__ float* getSharedMemory<float>();

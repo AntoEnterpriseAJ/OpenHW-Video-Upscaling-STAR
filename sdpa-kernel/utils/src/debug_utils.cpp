@@ -202,7 +202,7 @@ void print_tensor_info(const T* data, const std::string& name,
     if (print_values && total_elements <= 100) {
         std::cout << "Values: ";
         for (int i = 0; i < total_elements; ++i) {
-            if constexpr (std::is_same_v<T, __hip_bfloat16>) {
+            if constexpr (std::is_same_v<T, hip_bfloat16>) {
                 std::cout << __bfloat162float(data[i]);
             } else {
                 std::cout << data[i];
@@ -223,7 +223,7 @@ void print_tensor_stats(const T* data, int size, const std::string& name) {
     
     for (int i = 0; i < size; ++i) {
         T val = data[i];
-        if constexpr (std::is_same_v<T, __hip_bfloat16>) {
+        if constexpr (std::is_same_v<T, hip_bfloat16>) {
             float f_val = __bfloat162float(val);
             sum += static_cast<double>(f_val);
             if (f_val < __bfloat162float(min_val)) min_val = val;
@@ -239,7 +239,7 @@ void print_tensor_stats(const T* data, int size, const std::string& name) {
     
     std::cout << "=== Tensor Stats: " << name << " ===" << std::endl;
     std::cout << "Size: " << size << std::endl;
-    if constexpr (std::is_same_v<T, __hip_bfloat16>) {
+    if constexpr (std::is_same_v<T, hip_bfloat16>) {
         std::cout << "Min: " << __bfloat162float(min_val) << std::endl;
         std::cout << "Max: " << __bfloat162float(max_val) << std::endl;
     } else {
@@ -269,7 +269,7 @@ __device__ void print_block_info() {
     }
 }
 
-__device__ void print_bfloat16(__hip_bfloat16 val, const char* name) {
+__device__ void print_bfloat16(hip_bfloat16 val, const char* name) {
     printf("%s = %f\n", name, __bfloat162float(val));
 }
 
@@ -320,7 +320,7 @@ bool check_for_nan_inf(const T* data, int size, const std::string& tensor_name) 
     int inf_count = 0;
     
     for (int i = 0; i < size; ++i) {
-        if constexpr (std::is_same_v<T, __hip_bfloat16>) {
+        if constexpr (std::is_same_v<T, hip_bfloat16>) {
             float val = __bfloat162float(data[i]);
             if (std::isnan(val)) {
                 nan_count++;
@@ -357,7 +357,7 @@ bool compare_tensors(const T* a, const T* b, int size, float tolerance,
     
     for (int i = 0; i < size; ++i) {
         T diff;
-        if constexpr (std::is_same_v<T, __hip_bfloat16>) {
+        if constexpr (std::is_same_v<T, hip_bfloat16>) {
             float val_a = __bfloat162float(a[i]);
             float val_b = __bfloat162float(b[i]);
             float f_diff = std::abs(val_a - val_b);
@@ -375,7 +375,7 @@ bool compare_tensors(const T* a, const T* b, int size, float tolerance,
             }
         }
         
-        if constexpr (std::is_same_v<T, __hip_bfloat16>) {
+        if constexpr (std::is_same_v<T, hip_bfloat16>) {
             if (__bfloat162float(diff) > __bfloat162float(max_diff)) {
                 max_diff = diff;
             }
@@ -389,7 +389,7 @@ bool compare_tensors(const T* a, const T* b, int size, float tolerance,
     if (!tensors_match) {
         DEBUG_WARNING("Tensors '%s' and '%s' differ: %d/%d elements, max diff: %f", 
                      name_a.c_str(), name_b.c_str(), mismatch_count, size, 
-                     std::is_same_v<T, __hip_bfloat16> ? __bfloat162float(max_diff) : static_cast<float>(max_diff));
+                     std::is_same_v<T, hip_bfloat16> ? __bfloat162float(max_diff) : static_cast<float>(max_diff));
     } else {
         DEBUG_INFO("Tensors '%s' and '%s' match within tolerance %f", 
                   name_a.c_str(), name_b.c_str(), tolerance);
@@ -440,13 +440,13 @@ void PerformanceMonitor::record_memory_usage(size_t bytes_used) {
 }
 
 // Explicit template instantiations
-template void print_tensor_info<__hip_bfloat16>(const __hip_bfloat16*, const std::string&, const std::vector<int>&, bool);
+template void print_tensor_info<hip_bfloat16>(const hip_bfloat16*, const std::string&, const std::vector<int>&, bool);
 template void print_tensor_info<float>(const float*, const std::string&, const std::vector<int>&, bool);
-template void print_tensor_stats<__hip_bfloat16>(const __hip_bfloat16*, int, const std::string&);
+template void print_tensor_stats<hip_bfloat16>(const hip_bfloat16*, int, const std::string&);
 template void print_tensor_stats<float>(const float*, int, const std::string&);
-template bool check_for_nan_inf<__hip_bfloat16>(const __hip_bfloat16*, int, const std::string&);
+template bool check_for_nan_inf<hip_bfloat16>(const hip_bfloat16*, int, const std::string&);
 template bool check_for_nan_inf<float>(const float*, int, const std::string&);
-template bool compare_tensors<__hip_bfloat16>(const __hip_bfloat16*, const __hip_bfloat16*, int, float, const std::string&, const std::string&);
+template bool compare_tensors<hip_bfloat16>(const hip_bfloat16*, const hip_bfloat16*, int, float, const std::string&, const std::string&);
 template bool compare_tensors<float>(const float*, const float*, int, float, const std::string&, const std::string&);
 
 } // namespace debug
