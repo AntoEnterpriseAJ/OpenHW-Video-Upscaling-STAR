@@ -2,6 +2,7 @@ import os
 import os.path as osp
 import random
 from typing import Any, Dict
+import gc
 
 import torch
 import torch.cuda.amp as amp
@@ -116,6 +117,8 @@ class VideoToVideo_sr():
             chunk_inds = make_chunks(frames_num, interp_f_num=0, max_chunk_len=max_chunk_len) if frames_num > max_chunk_len else None
 
             solver = 'dpmpp_2m_sde' # 'heun' | 'dpmpp_2m_sde' 
+
+            # This tesnor is big and we can't afford to keep it in memory at the same time with vid_tensor_gen
             gen_vid = self.diffusion.sample_sr(
                 noise=noised_lr,
                 model=self.generator,
@@ -130,13 +133,29 @@ class VideoToVideo_sr():
                 t_min=0,
                 discretization='trailing',
                 chunk_inds=chunk_inds,)
+            
+            # Move to CPU to free up GPU memory
+            gen_vid = gen_vid.cpu() 
+            logger.info("sampling finished.")
+
+#             logger.info(f"MEM after sampling   : {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+#             logger.info(f"MEM reserved         : {torch.cuda.memory_reserved()/1024**3:.2f}GB")
+
+            # This memory won't be used anyways from now on
+            del noised_lr, video_data_feature
+            model_kwargs.clear()
+            
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()    
 
-            logger.info(f'sampling, finished.')
-            vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=3)
+#             logger.info(f"MEM after cleanup    : {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+#             logger.info(f"MEM reserved cleanup : {torch.cuda.memory_reserved()/1024**3:.2f}GB")
 
-            logger.info(f'temporal vae decoding, finished.')
+            vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=1)
+
+            logger.info("temporal VAE decoding finished.")
+#             logger.info(f"MEM after VAE decode : {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+#             logger.info(f"MEM reserved         : {torch.cuda.memory_reserved()/1024**3:.2f}GB")
 
         w1, w2, h1, h2 = padding
         vid_tensor_gen = vid_tensor_gen[:,:,h1:h+h1,w1:w+w1]

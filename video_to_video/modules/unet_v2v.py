@@ -35,7 +35,7 @@ class CaptionEmbedder(nn.Module):
         Drops labels to enable classifier-free guidance.
         """
         if force_drop_ids is None:
-            drop_ids = torch.rand(caption.shape[0]).cuda() < self.uncond_prob
+            drop_ids = torch.rand(caption.shape[0], device=caption.device) < self.uncond_prob
         else:
             drop_ids = force_drop_ids == 1
         caption = torch.where(drop_ids[:, None, None, None], self.y_embedding, caption)
@@ -170,41 +170,15 @@ class MemoryEfficientCrossAttention(nn.Module):
         )
 
         # actually compute the attention, what we cannot get enough of.
-        def _flash_attn(q_, k_, v_, max_chunk=1024):
-            """
-            1. Try xFormers CUDA kernels.
-            2. Try PyTorch SDPA.
-            3. If SDPA OOMs on CPU, do chunked SDPA over the
-            query length so the soft-max matrix never explodes.
-            """
-            # 1 - xFormers (works only on CUDA)
-            try:
-                return xformers.ops.memory_efficient_attention(
-                    q_, k_, v_, attn_bias=None, op=self.attention_op
+        def _flash_attn(q_, k_, v_, q_chunk=512):
+            outs = []
+            for s in range(0, q_.size(1), q_chunk):
+                q_chunk_tensor = q_[:, s:s + q_chunk]
+                out_chunk = torch.nn.functional.scaled_dot_product_attention(
+                    q_chunk_tensor, k_, v_, dropout_p=0.0, is_causal=False
                 )
-            except NotImplementedError:
-                pass  # drop to step 2
-
-            # 2 - vanilla SDPA (fast but memory-hungry on big seqs)
-            try:
-                return torch.nn.functional.scaled_dot_product_attention(
-                    q_, k_, v_, dropout_p=0.0, is_causal=False
-                )
-            except RuntimeError as err:
-                if "DefaultCPUAllocator" not in str(err):
-                    raise  # some other unexpected failure
-
-            # 3 - CHUNKED SDPA (low-mem CPU path)
-            q_len = q_.size(1)
-            out_chunks = []
-            for start in range(0, q_len, max_chunk):
-                q_chunk = q_[:, start:start + max_chunk]          # [B*H, chunk, D]
-                out_chunks.append(
-                    torch.nn.functional.scaled_dot_product_attention(
-                        q_chunk, k_, v_, dropout_p=0.0, is_causal=False
-                    )
-                )
-            return torch.cat(out_chunks, dim=1)                   # concat on seq dim
+                outs.append(out_chunk)
+            return torch.cat(outs, dim=1)
 
         if q.shape[0] > self.max_bs:
             out_chunks = []
